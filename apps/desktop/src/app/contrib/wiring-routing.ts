@@ -64,8 +64,8 @@ export type SessionRpcOwnerRoute = SessionOwnerRoute
 /**
  * The SYNC owner a session-scoped RPC routes to, resolved in this order:
  *
- *   1. the persisted tile owner route (a bot chat / split tile records the
- *      exact connectionId + profile it was opened with, survives relaunch);
+ *   1. the persisted tile owner (an exact connection route, or the legacy
+ *      profile pool that created an unlisted draft);
  *   2. the exact, UNIQUE session owner hint (recorded the moment a routed
  *      session.create returns, or at plugin open time; persisted, bounded);
  *   3. the session row's owner — an EXACT route when the row is
@@ -87,7 +87,7 @@ export type SessionRpcOwnerRoute = SessionOwnerRoute
  */
 export function resolveSessionRpcOwner(args: {
   routingSessionId: null | string
-  tileOwnerRoute: (storedSessionId: string) => SessionRpcOwnerRoute | undefined
+  tileOwnerRoute: (storedSessionId: string) => SessionRpcOwnerRoute | string | undefined
   sessionOwnerHint: (storedSessionId: string) => SessionRpcOwnerRoute | undefined
   sessionRowOwner: (storedSessionId: string) => null | SessionRpcOwnerRoute | string | undefined
 }): SessionRpcOwnerRoute | string | undefined {

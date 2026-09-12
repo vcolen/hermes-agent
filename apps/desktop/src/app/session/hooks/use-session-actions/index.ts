@@ -32,6 +32,7 @@ import {
   openGatewayForAgent,
   openGatewayForProfile,
   requestGatewayForAgent,
+  requestGatewayForProfile,
   retainGatewayForAgent
 } from '@/store/gateway'
 import { $gatewaySwitching } from '@/store/gateway-switch'
@@ -291,7 +292,8 @@ function reconcileAuthoritativeMessages(
 // value is a mirror of Settings → Model and must not pin the new chat.
 async function desktopSessionCreateParams(
   cwd: string,
-  capturedRoute = resolveNewChatOwnerRoute()
+  capturedRoute = resolveNewChatOwnerRoute(),
+  ownerProfile?: string
 ): Promise<Record<string, unknown>> {
   // Treat Send as the linearization point for the visible selector state. The
   // profile handshake below can yield long enough for background config/model
@@ -310,7 +312,8 @@ async function desktopSessionCreateParams(
     provider: isManualSelection ? $currentProvider.get().trim() : ''
   }
 
-  const profile = capturedRoute?.profile || $newChatProfile.get() || normalizeProfileKey($activeGatewayProfile.get())
+  const profile =
+    capturedRoute?.profile || ownerProfile || $newChatProfile.get() || normalizeProfileKey($activeGatewayProfile.get())
 
   if (capturedRoute) {
     await ensureGatewayAgent(capturedRoute.connectionId, profile)
@@ -768,17 +771,16 @@ export function useSessionActions({
         // occupied (openTab path for "New session in Home").
         const capturedRoute = options?.route !== undefined ? options.route : resolveNewChatOwnerRoute(options?.profile)
 
-        // A named local profile deliberately uses the legacy profile-only
-        // transport, so it has no connectionId to capture. For an explicit,
-        // unique non-default profile from the active local roster, the bare
-        // profile is still an authoritative pool owner. Keep every other null
-        // route unresolved: explicit null, default, remote, missing or
-        // duplicate profile intent retains its prior behavior.
-        const requestedProfile = typeof options?.profile === 'string' ? normalizeProfileKey(options.profile) : null
+        // The tab strip omits profile; capture its draft intent before awaiting
+        // the handshake. Use the same legacy pool owner for create and controls,
+        // even if the foreground profile changes before creation completes.
+        const requestedProfile = normalizeProfileKey(
+          options?.profile ?? $newChatProfile.get() ?? $activeGatewayProfile.get()
+        )
+
         const legacyOwnerProfile =
           options?.route === undefined &&
           !capturedRoute &&
-          requestedProfile !== null &&
           requestedProfile !== 'default' &&
           $connection.get()?.mode !== 'remote' &&
           $profiles.get().filter(profile => normalizeProfileKey(profile.name) === requestedProfile).length === 1
@@ -794,7 +796,7 @@ export function useSessionActions({
           options?.cwd === null ? '' : typeof options?.cwd === 'string' ? options.cwd.trim() : resolveNewSessionCwd()
 
         const params = {
-          ...(await desktopSessionCreateParams(cwd, capturedRoute)),
+          ...(await desktopSessionCreateParams(cwd, capturedRoute, legacyOwnerProfile)),
           ...(workspaceScope.workspaceMode === 'bots' ? { hidden: true } : {})
         }
 
@@ -803,7 +805,9 @@ export function useSessionActions({
         // tile is mounted ($sessionTiles names the owner from then on).
         const releaseCreateLease = capturedRoute
           ? await retainGatewayForAgent(capturedRoute.connectionId, capturedRoute.profile)
-          : () => undefined
+          : legacyOwnerProfile
+            ? await retainGatewayForAgent(null, legacyOwnerProfile)
+            : () => undefined
 
         let created: SessionCreateResponse
         let stored: string | undefined
@@ -816,7 +820,9 @@ export function useSessionActions({
                 'session.create',
                 params
               )
-            : await requestGateway<SessionCreateResponse>('session.create', params)
+            : legacyOwnerProfile
+              ? await requestGatewayForProfile<SessionCreateResponse>(legacyOwnerProfile, 'session.create', params)
+              : await requestGateway<SessionCreateResponse>('session.create', params)
 
           stored = created.stored_session_id
 
@@ -840,7 +846,9 @@ export function useSessionActions({
             ? requestGatewayForAgent(capturedRoute.connectionId, capturedRoute.profile, 'session.close', {
                 session_id: created.session_id
               })
-            : requestGateway('session.close', { session_id: created.session_id })
+            : legacyOwnerProfile
+              ? requestGatewayForProfile(legacyOwnerProfile, 'session.close', { session_id: created.session_id })
+              : requestGateway('session.close', { session_id: created.session_id })
 
           await closeCreated.catch(() => undefined)
           notify({ kind: 'error', title: copy.sessionUnavailable, message: copy.createSessionFailed })
@@ -855,7 +863,7 @@ export function useSessionActions({
         // unlisted (draft) tab stays out of the session list until its first
         // turn persists and a refresh surfaces it.
         if (listed) {
-          upsertOptimisticSession(created, stored, null, null, null, undefined, capturedRoute)
+          upsertOptimisticSession(created, stored, null, null, null, undefined, capturedRoute ?? legacyOwnerProfile)
         }
 
         // A tile lives in its OWN worktree, so it must not run the full

@@ -23,17 +23,13 @@ import { notifyError } from '@/store/notifications'
 import { clearPreviewArtifacts } from '@/store/preview-status'
 import { clearAllPrompts } from '@/store/prompts'
 import { $sessions, knownSessionOwner, ownerLookupSessionRows, sessionMatchesStoredId } from '@/store/session'
-import {
-  requestForSessionProfile,
-  type SessionOwnerScope,
-  type SessionProfileRoute
-} from '@/store/session-request-router'
+import { requestForSessionProfile, type SessionOwnerScope } from '@/store/session-request-router'
 import {
   $sessionStates,
   isSessionRemote,
   patchSessionTile,
   sessionTileDelegate,
-  sessionTileOwnerRoute
+  sessionTileOwner
 } from '@/store/session-states'
 import { broadcastSessionsChanged } from '@/store/session-sync'
 import { clearSessionSubagents } from '@/store/subagents'
@@ -96,11 +92,7 @@ export function listTileSessionRow(deps: {
     return false
   }
 
-  const knownOwner =
-    sessionTileOwnerRoute(deps.storedSessionId) ?? knownSessionOwner(deps.sessions, deps.storedSessionId)
-
-  const ownerRoute: SessionProfileRoute | undefined =
-    knownOwner && typeof knownOwner === 'object' ? knownOwner : undefined
+  const knownOwner = sessionTileOwner(deps.storedSessionId) ?? knownSessionOwner(deps.sessions, deps.storedSessionId)
 
   upsertOptimisticSession(
     { info: { cwd: deps.cwd, model: deps.model }, session_id: deps.runtimeId, stored_session_id: deps.storedSessionId },
@@ -109,7 +101,7 @@ export function listTileSessionRow(deps: {
     preview,
     null,
     undefined,
-    ownerRoute
+    knownOwner
   )
   broadcastSessionsChanged()
 
@@ -173,17 +165,15 @@ export function useSessionTileActions({ requestGateway, runtimeId, scope, stored
   const readState = useCallback(() => $sessionStates.get()[runtimeIdRef.current], [])
   const readMessages = useCallback(() => readState()?.messages ?? [], [readState])
 
-  // Tile session RPCs must follow the tile's composite owner even when the
-  // active gateway has moved to a same-named profile on another source.
+  // Tile session RPCs follow the captured owner, not the foreground selection.
   const requestSessionGateway = useCallback(
     <T>(method: string, params?: Record<string, unknown>, timeoutMs?: number, signal?: AbortSignal) => {
-      const knownOwner: SessionOwnerScope =
-        sessionTileOwnerRoute(storedIdRef.current) ?? knownSessionOwner(ownerLookupSessionRows(), storedIdRef.current)
+      const rowOwner = knownSessionOwner(ownerLookupSessionRows(), storedIdRef.current)
 
-      // A bare profile is the legacy/unknown tile shape. Preserve its ambient
-      // behavior; only a composite route is strong enough to retarget a tile
-      // across same-named sources.
-      const owner: SessionOwnerScope = knownOwner && typeof knownOwner === 'object' ? knownOwner : undefined
+      // A persisted tile owner was captured at create; a bare row profile
+      // remains presentation metadata and cannot retarget a legacy tile.
+      const owner: SessionOwnerScope =
+        sessionTileOwner(storedIdRef.current) ?? (rowOwner && typeof rowOwner === 'object' ? rowOwner : undefined)
 
       return requestForSessionProfile<T>(owner, requestGateway, method, params ?? {}, timeoutMs, signal)
     },

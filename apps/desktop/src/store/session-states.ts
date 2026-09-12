@@ -978,7 +978,7 @@ export function sessionTileOwnerRoute(storedSessionId: string): SessionOwnerRout
   return $sessionTiles.get().find(tile => tile.storedSessionId === storedSessionId)?.ownerRoute
 }
 
-function sessionTileOwner(storedSessionId: string): SessionOwnerScope {
+export function sessionTileOwner(storedSessionId: string): SessionOwnerRoute | string | undefined {
   const tile = $sessionTiles.get().find(candidate => candidate.storedSessionId === storedSessionId)
 
   return tile?.ownerRoute ?? tile?.ownerProfile

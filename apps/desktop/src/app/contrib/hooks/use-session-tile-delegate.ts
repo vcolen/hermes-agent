@@ -17,12 +17,7 @@ import {
 import { knownSessionOwner, ownerLookupSessionRows } from '@/store/session'
 import { assertSessionOwnerResolved } from '@/store/session-owner-resolution'
 import { requestForSessionProfile, type SessionOwnerScope } from '@/store/session-request-router'
-import {
-  $sessionTiles,
-  publishSessionState,
-  sessionTileOwnerRoute,
-  setSessionTileDelegate
-} from '@/store/session-states'
+import { $sessionTiles, publishSessionState, sessionTileOwner, setSessionTileDelegate } from '@/store/session-states'
 import type { SessionResumeResponse } from '@/types/hermes'
 
 import type { usePromptActions } from '../../session/hooks/use-prompt-actions'
@@ -175,7 +170,7 @@ export function useSessionTileDelegate({
     // the async cross-profile probe (exact when the resolved row is tagged).
     const ownerForStoredSession = async (storedSessionId: string): Promise<SessionOwnerScope> => {
       const owner =
-        sessionTileOwnerRoute(storedSessionId) ??
+        sessionTileOwner(storedSessionId) ??
         knownSessionOwner(ownerLookupSessionRows(), storedSessionId) ??
         (await resolveSessionOwner(storedSessionId))
 

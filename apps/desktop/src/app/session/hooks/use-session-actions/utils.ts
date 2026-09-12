@@ -38,7 +38,7 @@ import {
   setYoloActive
 } from '@/store/session'
 import type { SessionProfileRoute } from '@/store/session-request-router'
-import { sessionTileOwnerRoute } from '@/store/session-states'
+import { sessionTileOwner } from '@/store/session-states'
 
 // Re-exported for the many session-actions/tile call sites that already import
 // it from here; the canonical definition lives in @/store/session.
@@ -1273,7 +1273,7 @@ export function upsertOptimisticSession(
   preview: string | null = null,
   parentSessionId: string | null = null,
   lastActive?: number,
-  owner?: null | SessionProfileRoute
+  owner?: null | SessionProfileRoute | string
 ) {
   const now = lastActive ?? Date.now() / 1000
   // Stamp the profile the session was just created on so the scoped sidebar
@@ -1281,13 +1281,22 @@ export function upsertOptimisticSession(
   // until the aggregator re-fetches. An explicitly routed create ($newChatRoute
   // / a tile's route) names its EXACT owner: the backend profile that route
   // serves, on that route's connection. The live gateway's profile is only the
-  // owner for an unrouted create — in All-profiles / Bot routing the ambient
+  // fallback when no owner was captured — in All-profiles / Bot routing the ambient
   // profile stays on `default` while the session lives on another backend (and
   // a concurrent source switch can move the active gateway before this row is
   // inserted), so a row stamped `default` then misroutes every session-scoped
   // RPC that resolves its owner off the row ("session not found" on turn two).
-  const profileKey = normalizeProfileKey(owner ? owner.targetProfile || owner.profile : $activeGatewayProfile.get())
-  const connectionId = owner?.connectionId.trim() || ''
+  const ownerRoute = owner && typeof owner === 'object' ? owner : undefined
+
+  const profileKey = normalizeProfileKey(
+    typeof owner === 'string'
+      ? owner
+      : ownerRoute
+        ? ownerRoute.targetProfile || ownerRoute.profile
+        : $activeGatewayProfile.get()
+  )
+
+  const connectionId = ownerRoute?.connectionId.trim() || ''
 
   const session: SessionInfo = {
     // Seed cwd so the grouped sidebar can place the new row in its repo/worktree
@@ -1313,8 +1322,8 @@ export function upsertOptimisticSession(
     ...(connectionId ? { connection_id: connectionId } : {})
   }
 
-  if (owner) {
-    setSessionOwnerHint(id, owner)
+  if (ownerRoute) {
+    setSessionOwnerHint(id, ownerRoute)
   }
 
   setSessions(prev => [session, ...prev.filter(s => s.id !== id)])
@@ -1577,7 +1586,7 @@ export async function resolveSessionOwner(storedSessionId: null | string): Promi
 
   const owner = resolveSessionRpcOwner({
     routingSessionId: storedSessionId,
-    tileOwnerRoute: sessionTileOwnerRoute,
+    tileOwnerRoute: sessionTileOwner,
     sessionOwnerHint: getSessionOwnerHint,
     sessionRowOwner: id => knownSessionOwner(ownerLookupSessionRows(), id)
   })

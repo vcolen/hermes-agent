@@ -5,7 +5,9 @@ import type { MutableRefObject } from 'react'
 import { useEffect, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { listTileSessionRow } from '@/app/chat/session-tile-actions'
 import { NO_PROJECT_ID } from '@/app/chat/sidebar/projects/workspace-groups'
+import { createSessionRpcDispatcher } from '@/app/contrib/session-rpc-dispatcher'
 import { resolveSessionRpcOwner } from '@/app/contrib/wiring-routing'
 import { $terminalTakeover, setTerminalTakeover } from '@/app/right-sidebar/store'
 import { noteActiveTreeGroup, revealTreePane } from '@/components/pane-shell/tree/store'
@@ -81,6 +83,7 @@ import { NEW_CHAT_ROUTE, sessionRoute } from '../../routes'
 import type { ClientSessionState } from '../../types'
 
 import { useSessionActions } from './use-session-actions'
+import { resolveSessionOwner } from './use-session-actions/utils'
 import { useSessionStateCache } from './use-session-state-cache'
 
 vi.mock('@/hermes', async importOriginal => ({
@@ -4101,6 +4104,9 @@ describe('createBackendSessionForSend workspace target', () => {
 describe('openNewSessionTile workspace target', () => {
   afterEach(() => {
     cleanup()
+    $newChatProfile.set(null)
+    $newChatRoute.set(null)
+    $activeGatewayProfile.set('default')
     $profiles.set([])
     $projectScope.set(ALL_PROJECTS)
     $projectTree.set([])
@@ -4149,51 +4155,85 @@ describe('openNewSessionTile workspace target', () => {
     expect(createParams).not.toHaveProperty('cwd')
   })
 
-  it('keeps an unlisted named local legacy-profile tile owned by its bare profile', async () => {
-    const storedSessionId = 'stored-unlisted-omar'
-    $profiles.set([{ name: 'default' }, { name: 'omar' }] as never)
-    setConnection({ mode: 'local' } as never)
-
-    const requestGateway = vi.fn(async (method: string) => {
-      if (method === 'session.create') {
-        return {
-          info: { cwd: '', model: 'test-model', tools: {}, skills: {} },
-          session_id: RUNTIME_SESSION_ID,
-          stored_session_id: storedSessionId
-        } as never
-      }
-
-      throw new Error(`Unexpected ambient RPC: ${method}`)
-    })
-    vi.mocked(requestGatewayForProfile).mockResolvedValue({ control: {} } as never)
-
-    let handle: HarnessHandle | null = null
-    render(<Harness onReady={value => (handle = value)} requestGateway={requestGateway} />)
-    await waitFor(() => expect(handle).not.toBeNull())
-
-    await act(async () => {
-      await handle!.openNewSessionTile('center', { listed: false, profile: 'omar' })
-    })
-
-    expect(requestGateway).toHaveBeenCalledWith('session.create', expect.any(Object))
-    expect(vi.mocked(requestGatewayForAgent)).not.toHaveBeenCalled()
-    expect($sessions.get().some(session => sessionMatchesStoredId(session, storedSessionId))).toBe(false)
-    expect($sessionTiles.get()).toContainEqual(expect.objectContaining({ ownerProfile: 'omar', storedSessionId }))
-    expect(knownOwnerForSession(storedSessionId)).toBe('omar')
-
-    await expect(
-      requestForOwnedSession(storedSessionId, requestGateway, 'session.control.read', {
-        session_id: RUNTIME_SESSION_ID
+  it.each([undefined, 'work'])(
+    'keeps an unlisted legacy-profile tile on its creating owner with profile %s',
+    async profile => {
+      const storedSessionId = 'stored-unlisted-work'
+      $profiles.set([{ name: 'default' }, { name: 'work' }] as never)
+      $activeGatewayProfile.set('default')
+      $newChatProfile.set(profile ? null : 'work')
+      setConnection({ mode: 'local' } as never)
+      vi.mocked(ensureGatewayProfile).mockImplementationOnce(async () => {
+        $newChatProfile.set('default')
       })
-    ).resolves.toEqual({ control: {} })
-    expect(requestGatewayForProfile).toHaveBeenCalledWith(
-      'omar',
-      'session.control.read',
-      { session_id: RUNTIME_SESSION_ID },
-      undefined,
-      undefined
-    )
-  })
+
+      const requestGateway = vi.fn(async (method: string) => {
+        throw new Error(`Unexpected ambient RPC: ${method}`)
+      })
+
+      vi.mocked(requestGatewayForProfile).mockImplementation(async (owner, method, params) => {
+        expect(owner).toBe('work')
+
+        if (method === 'session.create') {
+          expect(params).toMatchObject({ profile: 'work' })
+
+          return {
+            info: { cwd: '', model: 'test-model', tools: {}, skills: {} },
+            session_id: RUNTIME_SESSION_ID,
+            stored_session_id: storedSessionId
+          } as never
+        }
+
+        return { control: {} } as never
+      })
+
+      let handle: HarnessHandle | null = null
+      render(<Harness onReady={value => (handle = value)} requestGateway={requestGateway} />)
+      await waitFor(() => expect(handle).not.toBeNull())
+
+      await act(async () => {
+        await handle!.openNewSessionTile('center', { listed: false, ...(profile ? { profile } : {}) })
+      })
+
+      expect(requestGatewayForProfile).toHaveBeenCalledWith(
+        'work',
+        'session.create',
+        expect.objectContaining({ profile: 'work' })
+      )
+      expect(requestGateway).not.toHaveBeenCalled()
+      expect(vi.mocked(requestGatewayForAgent)).not.toHaveBeenCalled()
+      expect($sessions.get().some(session => sessionMatchesStoredId(session, storedSessionId))).toBe(false)
+      expect($sessionTiles.get()).toContainEqual(expect.objectContaining({ ownerProfile: 'work', storedSessionId }))
+      expect(knownOwnerForSession(RUNTIME_SESSION_ID)).toBe('work')
+      await expect(resolveSessionOwner(storedSessionId)).resolves.toBe('work')
+
+      const dispatch = createSessionRpcDispatcher({
+        ambientRequest: requestGateway,
+        runtimeIdByStoredSessionIdRef: { current: new Map([[storedSessionId, RUNTIME_SESSION_ID]]) },
+        selectedStoredSessionIdRef: { current: null },
+        sessionStateByRuntimeIdRef: { current: new Map() }
+      })
+
+      await expect(dispatch('session.control.read', { session_id: RUNTIME_SESSION_ID })).resolves.toEqual({
+        control: {}
+      })
+      listTileSessionRow({ preview: 'First turn', runtimeId: RUNTIME_SESSION_ID, sessions: [], storedSessionId })
+      expect($sessions.get().find(session => session.id === storedSessionId)?.profile).toBe('work')
+
+      await expect(
+        requestForOwnedSession(RUNTIME_SESSION_ID, requestGateway, 'session.control.read', {
+          session_id: RUNTIME_SESSION_ID
+        })
+      ).resolves.toEqual({ control: {} })
+      expect(requestGatewayForProfile).toHaveBeenCalledWith(
+        'work',
+        'session.control.read',
+        { session_id: RUNTIME_SESSION_ID },
+        undefined,
+        undefined
+      )
+    }
+  )
 })
 describe('selectSidebarItem', () => {
   it('fronts the workspace pane when navigating to a sidebar route (issue #72602)', async () => {
