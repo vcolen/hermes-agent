@@ -126,7 +126,9 @@ it('routes completion through the owning dictation control without submitting th
   })
 
   render(
-    <surface.ComposerDictationContext value={{ status: 'recording', elapsedSeconds: 7, level: 0.5, cancel: vi.fn(), stop }}>
+    <surface.ComposerDictationContext
+      value={{ status: 'recording', elapsedSeconds: 7, level: 0.5, cancel: vi.fn(), stop }}
+    >
       <form onSubmit={submit}>
         <ComposerDictationMode active>
           <div>Native composer row</div>

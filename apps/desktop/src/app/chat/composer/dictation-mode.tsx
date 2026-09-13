@@ -25,7 +25,11 @@ export function ComposerDictationMode({ active, children }: ComposerDictationMod
     <>
       {/* Transcript insertion paints the imperative editor while transcription
           is still active. Hide it without unmounting its DOM or losing its ref. */}
-      <div className={contributionActive ? undefined : 'contents'} hidden={contributionActive} inert={contributionActive}>
+      <div
+        className={contributionActive ? undefined : 'contents'}
+        hidden={contributionActive}
+        inert={contributionActive}
+      >
         {children}
       </div>
       {contributionActive && (

@@ -2,10 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { registry } from '@/contrib'
-import {
-  SESSION_ROW_DECORATION_AREA,
-  type SessionRowDecorationContribution
-} from '@/lib/session-row-contribution'
+import { SESSION_ROW_DECORATION_AREA, type SessionRowDecorationContribution } from '@/lib/session-row-contribution'
 
 import { SessionRowDecorationSlot } from './session-row-decoration-slot'
 
@@ -25,11 +22,11 @@ afterEach(() => {
 
 describe('session row decoration slot', () => {
   it('preserves decoration state while row props update', () => {
-    contribute('note', props => <input aria-label="Decoration note" data-visible={String(props.visible)} defaultValue="" />)
+    contribute('note', props => (
+      <input aria-label="Decoration note" data-visible={String(props.visible)} defaultValue="" />
+    ))
 
-    const { rerender } = render(
-      <SessionRowDecorationSlot focused={false} profile="default" sessionId="s-1" visible />
-    )
+    const { rerender } = render(<SessionRowDecorationSlot focused={false} profile="default" sessionId="s-1" visible />)
 
     const input = screen.getByRole('textbox') as HTMLInputElement
 

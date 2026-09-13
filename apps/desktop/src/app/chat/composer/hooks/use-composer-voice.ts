@@ -66,7 +66,13 @@ export function useComposerVoice({
   const ownsWakeIndicatorRef = useRef(false)
   const voiceStartRequest = useStore($voiceConversationStartRequest)
 
-  const { cancel: cancelDictation, dictate, stop: stopDictation, voiceActivityState, voiceStatus } = useVoiceRecorder({
+  const {
+    cancel: cancelDictation,
+    dictate,
+    stop: stopDictation,
+    voiceActivityState,
+    voiceStatus
+  } = useVoiceRecorder({
     focusInput,
     maxRecordingSeconds,
     onTranscript: insertText,
