@@ -2,15 +2,68 @@ import { act, cleanup, render } from '@testing-library/react'
 import { useLayoutEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { registry } from '@/contrib/registry'
 import { type ComposerAttachment, mainComposerScope, stashSessionDraft } from '@/store/composer'
 
 import type { QueueEditState } from '../composer-utils'
+import { COMPOSER_AREAS } from '../contrib'
+import { ComposerDictationMode } from '../dictation-mode'
 import { type ComposerTarget, getActiveComposer, markActiveComposer } from '../focus'
+import { composerPlainText } from '../rich-editor'
 import { type ComposerScope, ComposerScopeProvider, MAIN_COMPOSER_SCOPE } from '../scope'
 
 import { useComposerDraft } from './use-composer-draft'
 
 const mockComposerApi = { setText: vi.fn() }
+
+it('keeps dictated text and the existing draft in the editor across consecutive audio modes', () => {
+  const dispose = registry.register({
+    area: COMPOSER_AREAS.dictation,
+    id: 'draft-dictation-regression',
+    render: () => <div>Recording controls</div>
+  })
+
+  let draft!: ReturnType<typeof useComposerDraft>
+
+  function Harness({ active }: { active: boolean }) {
+    draft = useComposerDraft({
+      activeQueueSessionKey: null,
+      focusKey: null,
+      inputDisabled: false,
+      queueEditRef: { current: null },
+      sessionId: null
+    })
+
+    return (
+      <ComposerDictationMode active={active}>
+        <div contentEditable ref={draft.editorRef} role="textbox" />
+      </ComposerDictationMode>
+    )
+  }
+
+  try {
+    const view = render(<Harness active={false} />)
+    act(() => draft.insertText('Existing draft'))
+
+    for (const transcript of ['First dictation', 'Second dictation']) {
+      view.rerender(<Harness active />)
+      expect(view.queryByRole('textbox')).toBeNull()
+      act(() => draft.insertText(transcript))
+      view.rerender(<Harness active={false} />)
+      expect(composerPlainText(view.getByRole('textbox'))).toBe(draft.draftRef.current)
+      expect(composerPlainText(view.getByRole('textbox'))).toContain(transcript)
+      expect(composerPlainText(view.getByRole('textbox'))).toContain('Existing draft')
+    }
+
+    const beforeDiscard = composerPlainText(view.getByRole('textbox'))
+    view.rerender(<Harness active />)
+    view.rerender(<Harness active={false} />)
+    expect(composerPlainText(view.getByRole('textbox'))).toBe(beforeDiscard)
+  } finally {
+    cleanup()
+    dispose()
+  }
+})
 
 vi.mock('@assistant-ui/react', () => ({
   useAui: () => ({ composer: () => mockComposerApi }),

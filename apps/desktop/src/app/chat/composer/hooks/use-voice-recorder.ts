@@ -28,6 +28,9 @@ export function useVoiceRecorder({
   const startedAtRef = useRef(0)
   const intervalRef = useRef<number | null>(null)
   const timeoutRef = useRef<number | null>(null)
+  const cancellationRef = useRef(0)
+  const activeStopRef = useRef<Promise<void> | null>(null)
+  const activeStartRef = useRef<Promise<void> | null>(null)
 
   const clearTimers = () => {
     if (intervalRef.current) {
@@ -41,11 +44,24 @@ export function useVoiceRecorder({
     }
   }
 
-  useEffect(() => () => clearTimers(), [])
+  useEffect(
+    () => () => {
+      // Ending ownership on unmount invalidates any in-flight transcription
+      // so a late settle cannot notify, insert text, or touch focus.
+      cancellationRef.current += 1
+      clearTimers()
+    },
+    []
+  )
 
-  const stop = async () => {
+  const runStop = async () => {
+    const generation = cancellationRef.current
     clearTimers()
     const result = await handle.stop()
+
+    if (generation !== cancellationRef.current) {
+      return
+    }
 
     if (!result) {
       setVoiceStatus('idle')
@@ -64,28 +80,64 @@ export function useVoiceRecorder({
     try {
       const transcript = (await onTranscribeAudio(result.audio)).trim()
 
+      if (generation !== cancellationRef.current) {
+        return
+      }
+
       if (!transcript) {
         notify({ kind: 'warning', title: voiceCopy.noSpeechDetected, message: voiceCopy.tryRecordingAgain })
       } else {
         onTranscript(transcript)
       }
     } catch (error) {
+      if (generation !== cancellationRef.current) {
+        return
+      }
+
       notifyError(error, voiceCopy.transcriptionFailed)
     } finally {
-      setVoiceStatus('idle')
-      focusInput()
+      if (generation === cancellationRef.current) {
+        setVoiceStatus('idle')
+        focusInput()
+      }
     }
   }
 
-  const start = async () => {
+  const stop = async () => {
+    if (activeStopRef.current) {
+      return activeStopRef.current
+    }
+
+    const completion = runStop()
+    activeStopRef.current = completion
+
+    try {
+      await completion
+    } finally {
+      // Clear only if this operation still owns the slot, so a stale
+      // completion cannot release a newer one.
+      if (activeStopRef.current === completion) {
+        activeStopRef.current = null
+      }
+    }
+  }
+
+  const runStart = async () => {
     if (!onTranscribeAudio) {
       notify({ kind: 'warning', title: voiceCopy.unavailable, message: voiceCopy.transcriptionUnavailable })
 
       return
     }
 
+    const generation = cancellationRef.current
+
     try {
       await handle.start({ onError: error => notifyError(error, voiceCopy.recordingFailed) })
+
+      if (generation !== cancellationRef.current) {
+        return
+      }
+
       startedAtRef.current = Date.now()
       setElapsedSeconds(0)
       setVoiceStatus('recording')
@@ -93,9 +145,41 @@ export function useVoiceRecorder({
       const cap = Math.max(1, Math.min(Math.trunc(maxRecordingSeconds), 600))
       timeoutRef.current = window.setTimeout(() => void stop(), cap * 1000)
     } catch (error) {
+      if (generation !== cancellationRef.current) {
+        return
+      }
+
       setVoiceStatus('idle')
       notifyError(error, voiceCopy.recordingFailed)
     }
+  }
+
+  const start = async () => {
+    if (activeStartRef.current) {
+      return activeStartRef.current
+    }
+
+    const completion = runStart()
+    activeStartRef.current = completion
+
+    try {
+      await completion
+    } finally {
+      if (activeStartRef.current === completion) {
+        activeStartRef.current = null
+      }
+    }
+  }
+
+  const cancel = () => {
+    cancellationRef.current += 1
+    activeStopRef.current = null
+    activeStartRef.current = null
+    clearTimers()
+    handle.cancel()
+    setElapsedSeconds(0)
+    setVoiceStatus('idle')
+    focusInput()
   }
 
   const dictate = () => {
@@ -112,5 +196,5 @@ export function useVoiceRecorder({
     status: voiceStatus
   }
 
-  return { dictate, voiceActivityState, voiceStatus }
+  return { cancel, dictate, stop, voiceActivityState, voiceStatus }
 }

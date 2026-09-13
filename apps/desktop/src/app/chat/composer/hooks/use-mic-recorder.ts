@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type BrowserAudioContext = typeof AudioContext
 
@@ -77,8 +77,9 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
   const silenceTriggeredRef = useRef(false)
   const silenceStartedAtRef = useRef<number | null>(null)
   const stopResolverRef = useRef<((recording: MicRecording | null) => void) | null>(null)
+  const acquisitionRef = useRef(0)
 
-  const cleanup = () => {
+  const cleanup = useCallback(() => {
     if (animationRef.current) {
       window.cancelAnimationFrame(animationRef.current)
       animationRef.current = null
@@ -92,9 +93,7 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
     setLevel(0)
     setRecording(false)
     silenceTriggeredRef.current = false
-  }
-
-  useEffect(() => () => cleanup(), [])
+  }, [])
 
   const startMeter = (stream: MediaStream, options: MicRecorderOptions) => {
     const audioWindow = window as Window & { webkitAudioContext?: BrowserAudioContext }
@@ -175,7 +174,12 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
       throw new Error(copy.microphoneUnsupported)
     }
 
+    const acquisition = acquisitionRef.current
     const permitted = await window.hermesDesktop?.requestMicrophoneAccess?.()
+
+    if (acquisition !== acquisitionRef.current) {
+      return
+    }
 
     if (permitted === false) {
       throw new Error(copy.microphoneAccessDenied)
@@ -189,6 +193,14 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
       })
     } catch (error) {
       throw micError(error, copy)
+    }
+
+    if (acquisition !== acquisitionRef.current) {
+      // Ownership ended (cancel or unmount) while the device was being
+      // acquired: release it instead of starting a recorder.
+      stream.getTracks().forEach(track => track.stop())
+
+      return
     }
 
     const mimeType =
@@ -273,21 +285,31 @@ export function useMicRecorder(copy: MicRecorderErrorCopy): {
       recorder.stop()
     })
 
-  const cancel: MicRecorderHandle['cancel'] = () => {
+  const cancel: MicRecorderHandle['cancel'] = useCallback(() => {
+    acquisitionRef.current += 1
     const recorder = recorderRef.current
     const resolver = stopResolverRef.current
     stopResolverRef.current = null
 
-    if (recorder && recorder.state !== 'inactive') {
+    if (recorder) {
+      // A stop event may already be queued even when state is inactive.
+      // Detach it before a subsequent recording can acquire these refs.
       recorder.ondataavailable = null
       recorder.onerror = null
       recorder.onstop = null
-      recorder.stop()
+
+      if (recorder.state !== 'inactive') {
+        recorder.stop()
+      }
     }
 
+    chunksRef.current = []
     cleanup()
     resolver?.(null)
-  }
+  }, [cleanup])
+
+  // Unmount discards capture and detaches queued callbacks just like cancellation.
+  useEffect(() => () => cancel(), [cancel])
 
   const handle: MicRecorderHandle = { start, stop, cancel }
 
