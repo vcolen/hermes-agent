@@ -287,6 +287,7 @@
       var(--ui-accent) var(--theme-row-active-accent-mix),
       color-mix(in srgb, var(--ui-base) 5%, transparent)
     );
+    --ui-row-open-background: color-mix(in srgb, var(--ui-row-active-background) 28%, transparent);
     --ui-control-hover-background: color-mix(
       in srgb,
       var(--ui-accent) var(--theme-control-hover-accent-mix),

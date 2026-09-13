@@ -27,6 +27,7 @@ import { $gateway } from '@/store/gateway'
 import { notify, notifyError } from '@/store/notifications'
 import { $activeGatewayProfile } from '@/store/profile'
 import { $activeSessionId, $currentCwd, $currentModel, $gatewayState } from '@/store/session'
+import { $visibleStoredSessionIds } from '@/store/session-presence'
 import { runGatewayRestart } from '@/store/system-actions'
 
 // -- state: readonly views over the app's live atoms -------------------------
@@ -68,7 +69,11 @@ export const host = {
     /** Profile the live gateway is routed to. */
     profile: readonlyAtom<string>($activeGatewayProfile),
     /** Window geometry ({ width, height, narrow }). */
-    viewport: readonlyAtom<ViewportRect>($viewport)
+    viewport: readonlyAtom<ViewportRect>($viewport),
+    /** Durable ids of sessions actually painted in this renderer window.
+     *  Inactive tabs, minimized or hidden zones, and page-covered workspace
+     *  sessions are excluded. */
+    visibleStoredSessionIds: readonlyAtom<ReadonlySet<string>>($visibleStoredSessionIds)
   },
 
   /** Toast into the app's notification stack. */
@@ -270,6 +275,13 @@ export const TITLEBAR_AREAS = { center: 'titleBar.center', left: 'titleBar.left'
  *  setup.runtime_check, reconciled) — pass `host.request`. Don't hand-roll
  *  readiness from raw RPC shapes. */
 export { evaluateRuntimeReadiness, type RuntimeReadinessResult } from '@/lib/runtime-readiness'
+/** Layout-neutral decorations mounted at the leading edge of stored-session
+ *  sidebar rows. Contributions receive window-scoped visibility and focus. */
+export {
+  SESSION_ROW_DECORATION_AREA,
+  type SessionRowDecorationContribution,
+  type SessionRowDecorationProps
+} from '@/lib/session-row-contribution'
 export { coarseElapsed, fmtDateTime, fmtDayTime, relativeTime } from '@/lib/time'
 export { cn } from '@/lib/utils'
 export { THEMES_AREA } from '@/themes/user-themes'
