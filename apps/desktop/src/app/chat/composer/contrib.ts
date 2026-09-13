@@ -7,6 +7,8 @@
  *                             composer.bottom    — row below the input grid
  *                             composer.underside — floating strip BELOW the
  *                                                  whole composer (no chrome)
+ *                             composer.dictation — replaces the input row while
+ *                                                  dictation is active
  *                             composer.leading   — inline after the "+" menu
  *                             composer.actions   — inline before the model pill
  *
@@ -14,13 +16,14 @@
  *                             composer.attachments   (ComposerAttachmentProvider)
  *                             composer.microActions  (ComposerMicroActionProvider)
  *
- * Core keeps ownership of the transcript, input, and submit engine — these
- * seams AUGMENT the composer, they never replace it. Middleware runs as an
- * ordered async chain around the app's onSubmit: each handler may rewrite the
- * draft, pass it through, or cancel the send by returning null.
+ * Core keeps ownership of the transcript, draft, and submit engine. Render
+ * seams augment the composer except `composer.dictation`, whose one bounded
+ * job is to replace the input row while dictation is active. Middleware runs
+ * as an ordered async chain around the app's onSubmit: each handler may rewrite
+ * the draft, pass it through, or cancel the send by returning null.
  */
 
-import { useMemo } from 'react'
+import { createContext, useContext, useMemo } from 'react'
 
 import { useContributions } from '@/contrib/react/use-contributions'
 import { registry } from '@/contrib/registry'
@@ -28,10 +31,26 @@ import type { TodoItem } from '@/lib/todos'
 import type { ComposerAttachment } from '@/store/composer'
 import type { ComposerAction } from '@/store/composer-actions'
 
+import type { VoiceStatus } from './types'
+
+/** Local-only dictation control for the composer hosting a contribution. */
+export interface ComposerDictationControl {
+  readonly status: VoiceStatus
+  readonly elapsedSeconds: number
+  readonly level: number
+  readonly cancel: () => void
+  /** Stops capture and inserts the transcript into the draft; never submits. */
+  readonly stop: () => Promise<void>
+}
+
+export const ComposerDictationContext = createContext<ComposerDictationControl | null>(null)
+export const useComposerDictation = () => useContext(ComposerDictationContext)
+
 export const COMPOSER_AREAS = {
   top: 'composer.top',
   bottom: 'composer.bottom',
   underside: 'composer.underside',
+  dictation: 'composer.dictation',
   leading: 'composer.leading',
   actions: 'composer.actions',
   middleware: 'composer.middleware',

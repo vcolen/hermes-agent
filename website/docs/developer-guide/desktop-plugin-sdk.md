@@ -333,10 +333,16 @@ ctx.register({ id: 'noir', area: THEMES_AREA, data: myDesktopTheme })
 
 ### Composer extensions
 
-`COMPOSER_AREAS` (`top`, `bottom`, `leading`, `actions`, `attachments`,
-`middleware`) let a plugin add controls around the message composer, provide an
-attachment source, or transform a draft before it is sent (`ComposerMiddleware`
-with a `handler(draft) => draft | null`).
+`COMPOSER_AREAS` lets a plugin add controls around the message composer, provide
+an attachment source, or transform a draft before it is sent. A
+`ComposerMiddleware` handler returns a draft or `null` to cancel the send.
+
+The `dictation` area is a bounded replacement surface. While a composer records
+or transcribes, a contribution in this area replaces its native input row. Use
+`useComposerDictation()` inside the contribution to read the local status,
+elapsed time, and input level. Call `cancel()` to discard only the active
+recording. Call `stop()` to transcribe and insert text into the draft without
+submitting it. When dictation becomes idle, the native input row returns.
 
 ### Mount-scoped chrome (`Contribute`)
 

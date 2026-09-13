@@ -32,8 +32,9 @@ import {
   slashArgStage
 } from './composer-utils'
 import { ContextMenu } from './context-menu'
-import { COMPOSER_AREAS, runComposerMiddleware } from './contrib'
+import { COMPOSER_AREAS, ComposerDictationContext, runComposerMiddleware } from './contrib'
 import { ComposerControls } from './controls'
+import { ComposerDictationMode, useComposerDictationMode } from './dictation-mode'
 import { ComposerDirectiveActions } from './directive-actions'
 import { COMPOSER_DROP_ACTIVE_CLASS, COMPOSER_DROP_FADE_CLASS } from './drop-affordance'
 import { markActiveComposer } from './focus'
@@ -875,11 +876,13 @@ export function ChatBar({
   useComposerEscCancel({ awaitingInput, busy, onCancel: haltRun, target: scope.target })
 
   const {
+    cancelDictation,
     conversation,
     dictate,
     endConversation,
     handleToggleAutoSpeak,
     startConversation,
+    stopDictation,
     voiceActivityState,
     voiceConversationActive,
     voiceStatus
@@ -897,6 +900,8 @@ export function ChatBar({
     sessionId,
     target: scope.target
   })
+
+  const contributedDictationMode = useComposerDictationMode(voiceStatus !== 'idle')
 
   // Keep the typed-stop interceptor (see onSubmit above) in sync with the
   // live conversation state. Render-time ref assignment, same pattern as
@@ -1024,7 +1029,15 @@ export function ChatBar({
   )
 
   return (
-    <>
+    <ComposerDictationContext
+      value={{
+        status: voiceStatus,
+        elapsedSeconds: voiceActivityState.elapsedSeconds,
+        level: voiceActivityState.level,
+        cancel: cancelDictation,
+        stop: stopDictation
+      }}
+    >
       {dragging && poppedOut && (
         <div
           aria-hidden
@@ -1217,11 +1230,10 @@ export function ChatBar({
                   )}
                   data-slot="composer-fade"
                 >
-                  {/* Contribution seams: banners above, a row below, inline
-                    additions beside the "+" menu and before the controls.
-                    All four render nothing until something contributes. */}
+                  {/* Contribution seams render nothing until something contributes.
+                    Dictation is the bounded exception that replaces the native row. */}
                   <ContribSlot area={COMPOSER_AREAS.top} />
-                  <VoiceActivity state={voiceActivityState} />
+                  {!contributedDictationMode && <VoiceActivity state={voiceActivityState} />}
                   <VoicePlaybackActivity />
                   {queueEdit && editingQueuedPrompt && (
                     <div className="flex items-center justify-between gap-2 rounded-lg border border-[color-mix(in_srgb,var(--dt-composer-ring)_32%,transparent)] bg-accent/18 px-2 py-1">
@@ -1248,24 +1260,26 @@ export function ChatBar({
                     </div>
                   )}
                   {attachments.length > 0 && <AttachmentList attachments={attachments} onRemove={onRemoveAttachment} />}
-                  <div
-                    className={cn(
-                      'grid w-full',
-                      stacked
-                        ? 'grid-cols-[auto_1fr] gap-(--composer-row-gap) [grid-template-areas:"input_input"_"menu_controls"]'
-                        : 'grid-cols-[auto_1fr_auto] items-center gap-(--composer-control-gap) [grid-template-areas:"menu_input_controls"]'
-                    )}
-                  >
-                    <div className="flex translate-y-[3px] items-start gap-(--composer-control-gap) self-start [grid-area:menu]">
-                      {contextMenu}
-                      <ContribSlot area={COMPOSER_AREAS.leading} />
+                  <ComposerDictationMode active={contributedDictationMode}>
+                    <div
+                      className={cn(
+                        'grid w-full',
+                        stacked
+                          ? 'grid-cols-[auto_1fr] gap-(--composer-row-gap) [grid-template-areas:"input_input"_"menu_controls"]'
+                          : 'grid-cols-[auto_1fr_auto] items-center gap-(--composer-control-gap) [grid-template-areas:"menu_input_controls"]'
+                      )}
+                    >
+                      <div className="flex translate-y-[3px] items-start gap-(--composer-control-gap) self-start [grid-area:menu]">
+                        {contextMenu}
+                        <ContribSlot area={COMPOSER_AREAS.leading} />
+                      </div>
+                      <div className="min-w-0 [grid-area:input]">{input}</div>
+                      <div className="flex items-center justify-end gap-(--composer-control-gap) [grid-area:controls]">
+                        <ContribSlot area={COMPOSER_AREAS.actions} />
+                        {controls}
+                      </div>
                     </div>
-                    <div className="min-w-0 [grid-area:input]">{input}</div>
-                    <div className="flex items-center justify-end gap-(--composer-control-gap) [grid-area:controls]">
-                      <ContribSlot area={COMPOSER_AREAS.actions} />
-                      {controls}
-                    </div>
-                  </div>
+                  </ComposerDictationMode>
                   <ContribSlot area={COMPOSER_AREAS.bottom} />
                 </div>
               </div>
@@ -1289,7 +1303,7 @@ export function ChatBar({
         open={urlOpen}
         value={urlValue}
       />
-    </>
+    </ComposerDictationContext>
   )
 }
 
