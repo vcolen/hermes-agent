@@ -24,6 +24,8 @@ import { $sidebarRowMeta } from '@/store/layout'
 import { normalizeProfileKey } from '@/store/profile'
 import { $pullRequestsByBranch, sessionPrKey } from '@/store/pull-requests'
 import { $sessionDotStateById, hasLiveTurn, showsRunningArc } from '@/store/session-dot-state'
+import { $visibleStoredSessionIds } from '@/store/session-presence'
+import { $focusedStoredSessionId } from '@/store/session-states'
 import { sessionCostUsd } from '@/store/sidebar-archive'
 
 import { SessionStatusDot } from '../session-status-dot'
@@ -37,6 +39,7 @@ import {
   SidebarRowShell
 } from './chrome'
 import { SessionActionsMenu, SessionContextMenu } from './session-actions-menu'
+import { SessionRowDecorationSlot } from './session-row-decoration-slot'
 import { useProfilePrewarm } from './use-profile-prewarm'
 
 interface SidebarSessionRowProps extends React.ComponentProps<'div'> {
@@ -116,6 +119,11 @@ function SidebarSessionRowImpl({
   // those branches should repaint.
   const prKey = sessionPrKey(session)
   const pr = useStoreSelector($pullRequestsByBranch, prs => (rowMeta.includes('pr') && prKey ? prs[prKey] : undefined))
+  // Presentation state belongs to this renderer window. Boolean selectors keep
+  // layout edits from repainting rows whose own visibility did not change.
+  const visible = useStoreSelector($visibleStoredSessionIds, ids => ids.has(session.id))
+  const focused = useStoreSelector($focusedStoredSessionId, id => visible && id === session.id)
+  const visibleUnfocused = visible && !isSelected
   const totalTokens = session.input_tokens + session.output_tokens
   const cost = sessionCostUsd(session)
 
@@ -243,12 +251,17 @@ function SidebarSessionRowImpl({
         className={cn(
           'group row-hover relative',
           isSelected && 'bg-(--ui-row-active-background)',
+          // Visible in another pane: the SAME band, just weaker. Its own mixed
+          // token rather than row opacity — dimming the whole row would take
+          // the title and the status dot down with it.
+          visibleUnfocused && 'bg-(--ui-row-open-background)',
           liveTurn && 'text-foreground',
           // Opaque surface while lifted so the dragged row erases what's under
           // it (translucency let the rows below bleed through).
           dragging && 'z-10 cursor-grabbing bg-(--ui-sidebar-surface-background)',
           className
         )}
+        data-session-visible={visible ? 'true' : undefined}
         data-working={liveTurn ? 'true' : undefined}
         // The row runs BOTH drags off one press, and each declines outside its
         // own region — so no timing/arbitration rule is needed and neither can
@@ -281,8 +294,15 @@ function SidebarSessionRowImpl({
         style={style}
         {...rest}
       >
+        <SessionRowDecorationSlot
+          focused={focused}
+          profile={session.profile || 'default'}
+          sessionId={session.id}
+          visible={visible}
+        />
         {showsRunningArc(dotState) && <span aria-hidden="true" className="arc-border arc-row" />}
         <SidebarRowBody
+          aria-current={focused ? 'true' : undefined}
           // Every trailing figure lives in the actions slot, which the row
           // measures — so the title needs a gap from it and nothing else. Hover
           // changes what you can see in that slot, never how wide it is.

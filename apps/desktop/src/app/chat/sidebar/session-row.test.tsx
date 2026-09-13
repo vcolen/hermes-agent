@@ -3,10 +3,15 @@ import { atom } from 'nanostores'
 import type * as React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { group } from '@/components/pane-shell/tree/model'
+import { $layoutTree } from '@/components/pane-shell/tree/store'
+import { registry } from '@/contrib'
 import type { SessionInfo } from '@/hermes'
 import { createClientSessionState } from '@/lib/chat-runtime'
 import type * as ChatRuntime from '@/lib/chat-runtime'
+import { SESSION_ROW_DECORATION_AREA } from '@/lib/session-row-contribution'
 import type * as ComposerStatusStore from '@/store/composer-status'
+import { $selectedStoredSessionId } from '@/store/session'
 import type * as SessionStore from '@/store/session'
 import { clearAllSessionStates, publishSessionState } from '@/store/session-states'
 import type * as SessionStatesStore from '@/store/session-states'
@@ -208,6 +213,49 @@ describe('SidebarSessionRow running arc', () => {
 })
 
 describe('SidebarSessionRow', () => {
+  it('mounts row decorations with truthful visibility and current semantics', () => {
+    const disposePane = registry.register({
+      area: 'panes',
+      data: { placement: 'main', uncloseable: true },
+      id: 'workspace',
+      render: () => null,
+      title: 'Workspace'
+    })
+
+    const disposeDecoration = registry.register({
+      area: SESSION_ROW_DECORATION_AREA,
+      data: {
+        render: ({ visible }: { visible: boolean }) => (visible ? <span data-testid="visible-row" /> : null)
+      },
+      id: 'test-presence'
+    })
+
+    try {
+      $selectedStoredSessionId.set('s1')
+      $layoutTree.set(group(['workspace'], { active: 'workspace', id: 'main' }))
+
+      render(
+        <SidebarSessionRow
+          isPinned={false}
+          isSelected
+          onArchive={noop}
+          onDelete={noop}
+          onPin={noop}
+          onResume={noop}
+          session={makeSession({ title: 'Visible session' })}
+        />
+      )
+
+      expect(screen.getByTestId('visible-row')).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Visible session/ }).getAttribute('aria-current')).toBe('true')
+    } finally {
+      $layoutTree.set(null)
+      $selectedStoredSessionId.set(null)
+      disposeDecoration()
+      disposePane()
+    }
+  })
+
   it('keeps an aria-label on the kebab without wrapping it in a Tip', () => {
     render(
       <SidebarSessionRow
